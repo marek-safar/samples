@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Json;
@@ -13,6 +14,8 @@ namespace AsyncDemo
 	public partial class DetailViewController : UITableViewController
 	{	
 		DataSource view;
+		CLLocationManager location_manager;
+		CLLocation start_location;
 
 		public DetailViewController () 
 			: base (UITableViewStyle.Grouped)
@@ -38,8 +41,6 @@ namespace AsyncDemo
 
 		async Task FetchArtistDetails ()
 		{
-			const string url = "http://developer.echonest.com/api/v4/artist/profile?api_key=NVBXAS6ETZE2UHCGJ&bucket=artist_location";
-
 			var client = new HttpClient ();
 
 			// Slow things down little bit
@@ -50,7 +51,7 @@ namespace AsyncDemo
 			// Simple retry routine for slow/flaky server
 			while (true) {
 				try {
-					data = JsonObject.Load (await client.GetStreamAsync (url + "&id=" + Song.ArtistID));
+					data = JsonObject.Load (await client.GetStreamAsync (EchoNest.ArtistDetails + "&id=" + Song.ArtistID));
 					break;
 				} catch (Exception e) {
 					Console.WriteLine (e);
@@ -73,8 +74,80 @@ namespace AsyncDemo
 			UpdateCell (ArtistInfo.City, 1);
 			UpdateCell (ArtistInfo.Country, 1, 1);
 
-			if (ArtistInfo.Location != null)
+			if (ArtistInfo.Location != null) {
+				//HandleTouchDown (null, EventArgs.Empty);
 				view.CalculateButton.Enabled = true;
+			}
+		}
+
+		public async void HandleTouchDown (object sender, EventArgs e)
+		{
+			if (location_manager != null) {
+				location_manager.StopUpdatingLocation ();
+				location_manager.LocationsUpdated -= HandleLocationsUpdated;
+				location_manager = null;
+				view.CalculateButton.SetTitle ("Start Tracking", UIControlState.Normal);
+
+				UpdateCell ("Unknown", 2, color: UIColor.LightGray);
+				return;
+			}
+
+			// Disable the button because the handler can take a while
+			view.CalculateButton.Enabled = false;
+
+			try {
+				var geocoder = new CLGeocoder ();
+
+				// Convert textual artist location to longitude/latitude coordinates
+				var art_loc = await geocoder.GeocodeAddressAsync (ArtistInfo.Location);
+				if (art_loc == null)
+					return;
+
+				start_location = art_loc [0].Location;
+
+				location_manager = new CLLocationManager ();
+				location_manager.DesiredAccuracy = CLLocation.AccuracyBest;
+				view.CalculateButton.SetTitle ("Stop Tracking", UIControlState.Normal);
+				location_manager.LocationsUpdated += HandleLocationsUpdated;
+
+				if (CLLocationManager.LocationServicesEnabled)
+					location_manager.StartUpdatingLocation ();
+			} catch {
+				// TODO: Handle exceptions
+			} finally {
+				// Re-enable the button when everything is ready
+				view.CalculateButton.Enabled = true;
+			}
+		}
+
+		static double CalculateDistance (CLPlacemark a, CLPlacemark b)
+		{
+			return 3;
+		}
+
+		void HandleLocationsUpdated (object sender, CLLocationsUpdatedEventArgs e)
+		{
+			var location = e.Locations [0];
+			var dist = HaversineInKM (start_location, location);
+			UpdateCell (string.Format ("{0:f3} km", dist), 2);
+		}
+
+		static double HaversineInKM (CLLocation from, CLLocation to)
+		{
+			const double d2r = Math.PI / 180;
+			const double eQuatorialEarthRadius = 6378.1370;
+
+			double dlong = (to.Coordinate.Longitude - from.Coordinate.Longitude) * d2r;
+
+			var lat2 = to.Coordinate.Latitude;
+			var lat1 = from.Coordinate.Latitude;
+
+			double dlat = (lat2 - lat1) * d2r;
+			double a = Math.Pow (Math.Sin (dlat / 2), 2) + Math.Cos (lat1 * d2r) * Math.Cos (lat2 * d2r) * Math.Pow (Math.Sin (dlong / 2), 2);
+			double c = 2 * Math.Atan2 (Math.Sqrt (a), Math.Sqrt (1 - a));
+			double d = eQuatorialEarthRadius * c;
+
+			return d;
 		}
 
 		public void UpdateCell (string text, int index, int cellIndex = 0, UIColor color = null)
@@ -82,149 +155,6 @@ namespace AsyncDemo
 			var cell = TableView.CellAt (NSIndexPath.Create (index, cellIndex));
 			cell.TextLabel.Text = text;
 			cell.TextLabel.TextColor = color ?? UIColor.Black;
-		}
-
-		class DataSource : UITableViewSource
-		{
-			DetailViewController controller;
-			CLLocationManager location_manager;
-			CLLocation start_location;
-
-			public DataSource (DetailViewController controller)
-			{
-				this.controller = controller;
-			}
-
-			public UIButton CalculateButton { get; private set; }
-
-			public override int NumberOfSections (UITableView tableView)
-			{
-				return 3;
-			}
-
-			public override string TitleForHeader (UITableView tableView, int section)
-			{
-				switch (section) {
-				case 0:
-					return "Artist";
-				case 1:
-					return "Location";
-				case 2:
-					return "Distance";
-				}
-
-				throw new NotImplementedException ();
-			}
-
-			public override int RowsInSection (UITableView tableview, int section)
-			{
-				if (section == 0)
-					return 1;
-
-				return 2;
-			}
-
-			public override UITableViewCell GetCell (UITableView tableView, NSIndexPath indexPath)
-			{
-				string cellIdentifier = "Cell";
-				var cell = tableView.DequeueReusableCell (cellIdentifier);
-				if (cell == null) {
-					cell = new UITableViewCell (UITableViewCellStyle.Default, cellIdentifier);
-					cell.SelectionStyle = UITableViewCellSelectionStyle.None;
-				}
-
-				var info = controller.ArtistInfo;
-
-				if (info != null)
-					return cell;
-
-				cell.TextLabel.TextColor = UIColor.LightGray;
-
-				if (indexPath.Section == 2) {
-					if (indexPath.Row == 1) {
-						CalculateButton = new UIButton (UIButtonType.RoundedRect) {
-							Frame = new RectangleF (80, 5, 140, 35),
-							Enabled = false
-						};
-
-						CalculateButton.SetTitle ("Start Tracking", UIControlState.Normal);
-						CalculateButton.TouchDown += HandleTouchDown;
-
-						cell.ContentView.AddSubview (CalculateButton);
-					} else {
-						cell.TextLabel.Text = "Unknown";
-					}
-				} else {
-					cell.TextLabel.Text = "Retrieving...";
-				}
-
-				return cell;
-			}
-
-			async void HandleTouchDown (object sender, EventArgs e)
-			{
-				if (location_manager != null) {
-					location_manager.StopUpdatingLocation ();
-					location_manager.LocationsUpdated -= HandleLocationsUpdated;
-					location_manager = null;
-					CalculateButton.SetTitle ("Start Tracking", UIControlState.Normal);
-
-					controller.UpdateCell ("Unknown", 2, color: UIColor.LightGray);
-					return;
-				}
-
-				// Disable the button because the handler can take a while
-				CalculateButton.Enabled = false;
-
-				try {
-					var geocoder = new CLGeocoder ();
-
-					// Convert textual artist location to longitude/latitude coordinates
-					var art_loc = await geocoder.GeocodeAddressAsync (controller.ArtistInfo.Location);
-					if (art_loc == null)
-						return;
-
-					start_location = art_loc [0].Location;
-
-					location_manager = new CLLocationManager ();
-					location_manager.DesiredAccuracy = CLLocation.AccuracyBest;
-					CalculateButton.SetTitle ("Stop Tracking", UIControlState.Normal);
-					location_manager.LocationsUpdated += HandleLocationsUpdated;
-
-					if (CLLocationManager.LocationServicesEnabled)
-						location_manager.StartUpdatingLocation ();
-				} catch {
-					// TODO: Handle exceptions
-				} finally {
-					// Re-enable the button when everything is ready
-					CalculateButton.Enabled = true;
-				}
-			}
-
-			void HandleLocationsUpdated (object sender, CLLocationsUpdatedEventArgs e)
-			{
-				var location = e.Locations [0];
-				var dist = HaversineInKM (start_location, location);
-				controller.UpdateCell (string.Format ("{0:f3} km", dist), 2);
-			}
-
-			static double HaversineInKM (CLLocation from, CLLocation to)
-			{
-				const double d2r = Math.PI / 180;
-				const double eQuatorialEarthRadius = 6378.1370;
-
-				double dlong = (to.Coordinate.Longitude - from.Coordinate.Longitude) * d2r;
-
-				var lat2 = to.Coordinate.Latitude;
-				var lat1 = from.Coordinate.Latitude;
-
-				double dlat = (lat2 - lat1) * d2r;
-				double a = Math.Pow (Math.Sin (dlat / 2), 2) + Math.Cos (lat1 * d2r) * Math.Cos (lat2 * d2r) * Math.Pow (Math.Sin (dlong / 2), 2);
-				double c = 2 * Math.Atan2 (Math.Sqrt (a), Math.Sqrt (1 - a));
-				double d = eQuatorialEarthRadius * c;
-
-				return d;
-			}
 		}
 	}
 }

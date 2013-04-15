@@ -1,4 +1,6 @@
 using System;
+using MonoTouch.UIKit;
+using MonoTouch.Foundation;
 
 namespace AsyncDemo
 {
@@ -6,6 +8,7 @@ namespace AsyncDemo
 	{
 		public string Title { get; set; }
 		public string ArtistID { get; set; }
+		public UIImage ImageData { get; set; }
 
 		public override int GetHashCode ()
 		{

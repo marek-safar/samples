@@ -92,6 +92,10 @@
     </Compile>
     <Compile Include="DetailViewController.cs" />
     <Compile Include="SongInfo.cs" />
+    <Compile Include="Extensions.cs" />
+    <Compile Include="RootDataSource.cs" />
+    <Compile Include="EchoNest.cs" />
+    <Compile Include="DataSource.cs" />
   </ItemGroup>
   <ItemGroup>
     <InterfaceDefinition Include="AsyncDemoViewController.xib" />

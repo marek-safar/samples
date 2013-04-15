@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Json;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using MonoTouch.Foundation;
@@ -31,15 +33,17 @@ namespace AsyncDemo
 		{
 			base.ViewDidLoad ();
 
-			await FetchSongsAsync (500);
+			// Fetch some trending songs
+			await FetchSongsAsync (300);
 
 			Title = string.Format ("{0} Trending Songs", Data.Count);
+
+			// Fetch images of trending songs artists
+			await FetchImages ();
 		}
 
 		async Task FetchSongsAsync (int maxCount)
 		{
-			const string url = "http://developer.echonest.com/api/v4/song/search?api_key=NVBXAS6ETZE2UHCGJ&sort=song_hotttnesss-desc&bucket=song_hotttnesss&results=50";
-
 			var distinct_data = new HashSet<SongInfo> ();
 
 			HttpClient client = new HttpClient ();
@@ -48,8 +52,17 @@ namespace AsyncDemo
 			while (Data.Count < maxCount) {
 				JsonValue data;
 				try {
-					data = JsonObject.Load (await client.GetStreamAsync (url + "&start=" + start));
-				} catch (Exception e) {
+					//
+					// Get a stream with data bucket using http client async API
+					//
+					var stream = await client.GetStreamAsync (EchoNest.TrendingSongs + "&start=" + start);
+
+					//
+					// JSonObject does not have async API yet but we can easily simulate it
+					// by using Task.Run
+					//
+					data = await Task.Run (() => JsonObject.Load (stream));
+				} catch {
 					return;
 				}
 
@@ -76,39 +89,44 @@ namespace AsyncDemo
 			}
 		}
 
-		class RootDataSource : UITableViewSource
+		async Task FetchImages ()
 		{
-			AsyncDemoViewController controller;
-
-			public RootDataSource (AsyncDemoViewController controller)
-			{
-				this.controller = controller;
+			foreach (var entry in Data) {
+				await FetchArtistImage (entry);
+				TableView.ReloadData ();
+			}
+		}
+/*
+		async Task FetchImagesFaster ()
+		{
+			foreach (var slice in Data.Partition (5)) {
+				var tasks = from d in slice select FetchArtistImage (d);
+				await Task.WhenAll (tasks);
+				TableView.ReloadData ();
+			}
+		}
+*/
+		async Task FetchArtistImage (SongInfo song)
+		{
+			HttpClient client = new HttpClient ();
+			Stream stream;
+			try {
+				stream = await client.GetStreamAsync (EchoNest.ArtistImages + "&id=" + song.ArtistID);
+			} catch {
+				return;
 			}
 
-			public override int RowsInSection (UITableView tableview, int section)
-			{
-				return controller.Data.Count;
-			}
-
-			public override UITableViewCell GetCell (UITableView tableView, NSIndexPath indexPath)
-			{
-				string cellIdentifier = "Cell";
-				var cell = tableView.DequeueReusableCell (cellIdentifier);
-				if (cell == null) {
-					cell = new UITableViewCell (UITableViewCellStyle.Default, cellIdentifier);
-					cell.Accessory = UITableViewCellAccessory.DisclosureIndicator;
+			var data = await Task.Run (() => JsonObject.Load (stream));
+			var images = data ["response"] ["images"];
+			foreach (JsonObject image in images) {
+				var img_url = image ["url"];
+				try {
+					var img_data = await Task.Run (() => NSData.FromUrl (new NSUrl (img_url)));
+					var img = new UIImage (img_data);
+					song.ImageData = img.Scale (new SizeF (150, 150));
+					return;
+				} catch {
 				}
-
-				cell.TextLabel.Text = controller.Data [indexPath.Item].Title;
-				return cell;
-			}
-
-			public override void RowSelected (UITableView tableView, NSIndexPath indexPath)
-			{
-				// Make the DetailView the active View.
-				controller.NavigationController.PushViewController (new DetailViewController () {
-					Song = controller.Data [indexPath.Item]
-				}, true);
 			}
 		}
 	}
