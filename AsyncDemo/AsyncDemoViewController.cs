@@ -58,7 +58,7 @@ namespace AsyncDemo
 					var stream = await client.GetStreamAsync (EchoNest.TrendingSongs + "&start=" + start);
 
 					//
-					// JSonObject does not have async API yet but we can easily simulate it
+					// JsonObject does not have async API yet but we can easily simulate it
 					// by using Task.Run
 					//
 					data = await Task.Run (() => JsonObject.Load (stream));
@@ -96,16 +96,7 @@ namespace AsyncDemo
 				TableView.ReloadData ();
 			}
 		}
-/*
-		async Task FetchImagesFaster ()
-		{
-			foreach (var slice in Data.Partition (5)) {
-				var tasks = from d in slice select FetchArtistImage (d);
-				await Task.WhenAll (tasks);
-				TableView.ReloadData ();
-			}
-		}
-*/
+
 		async Task FetchArtistImage (SongInfo song)
 		{
 			HttpClient client = new HttpClient ();
@@ -121,11 +112,12 @@ namespace AsyncDemo
 			foreach (JsonObject image in images) {
 				var img_url = image ["url"];
 				try {
-					var img_data = await Task.Run (() => NSData.FromUrl (new NSUrl (img_url)));
+					var img_data = await NSData.FromUrlAsync (img_url);
 					var img = new UIImage (img_data);
 					song.ImageData = img.Scale (new SizeF (150, 150));
 					return;
 				} catch {
+					// Image download failed try another one
 				}
 			}
 		}

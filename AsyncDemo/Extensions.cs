@@ -1,7 +1,6 @@
 using System;
+using System.Threading.Tasks;
 using System.Json;
-
-
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
@@ -30,10 +29,12 @@ static class Extension
 			yield return new ReadOnlyCollection<T> (array);
 		}
 	}
-/*
-	public static object LoadAsync (JsonObject json)
-	{
+}
 
+class NSData
+{
+	public static System.Threading.Tasks.Task<MonoTouch.Foundation.NSData> FromUrlAsync (string url)
+	{
+		return Task.Run (() => MonoTouch.Foundation.NSData.FromUrl (new MonoTouch.Foundation.NSUrl (url)));
 	}
-*/
 }
